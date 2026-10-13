@@ -6,7 +6,7 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.22.3",
+    "express": "^4.19.2",
     "nodemailer": "^6.9.13",
     "pm2": "^7.0.4",
     "pg": "^8.11.3"
