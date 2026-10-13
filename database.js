@@ -1,7 +1,7 @@
 /**
  * ============================================================================
  * SMM ARCHIVE — DATABASE ENGINE MODULE (DATABASE.JS)
- * SQLite3 Persistent Storage Management with Auto-Migration
+ * SQLite3 Persistent Storage Management with Full Auto-Migration
  * ============================================================================
  */
 
@@ -18,7 +18,7 @@ db.run("PRAGMA foreign_keys = ON;");
 db.run("PRAGMA journal_mode = WAL;");
 
 db.serialize(() => {
-  // 1. Таблица пользователей
+  // 1. Таблица пользователей + миграции
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     login TEXT UNIQUE,
@@ -36,13 +36,12 @@ db.serialize(() => {
     email_code TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`, () => {
-    // Безопасное добавление колонок, если таблица уже существовала старой
     db.run(`ALTER TABLE users ADD COLUMN balance REAL DEFAULT 1000.0`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN bonus_balance REAL DEFAULT 1000.0`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`, () => {});
   });
 
-  // 2. Таблица товаров
+  // 2. Таблица товаров + миграции
   db.run(`CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
     title TEXT,
@@ -79,7 +78,7 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
-  // 4. Таблица новостей
+  // 4. Таблица новостей + миграция столбца content
   db.run(`CREATE TABLE IF NOT EXISTS news (
     id TEXT PRIMARY KEY,
     title TEXT,
@@ -88,7 +87,10 @@ db.serialize(() => {
     photo TEXT,
     date TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`, (err) => { if (!err) seedNews(); });
+  )`, (err) => {
+    db.run(`ALTER TABLE news ADD COLUMN content TEXT`, () => {});
+    if (!err) seedNews();
+  });
 
   // 5. Таблица отзывов
   db.run(`CREATE TABLE IF NOT EXISTS reviews (
