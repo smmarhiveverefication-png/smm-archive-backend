@@ -18,7 +18,7 @@ db.run("PRAGMA foreign_keys = ON;");
 db.run("PRAGMA journal_mode = WAL;");
 
 db.serialize(() => {
-  // 1. Таблица пользователей + миграции
+  // 1. Таблица пользователей
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     login TEXT UNIQUE,
@@ -39,9 +39,13 @@ db.serialize(() => {
     db.run(`ALTER TABLE users ADD COLUMN balance REAL DEFAULT 1000.0`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN bonus_balance REAL DEFAULT 1000.0`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN email TEXT`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN name TEXT`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN referral_code TEXT`, () => {});
   });
 
-  // 2. Таблица товаров + миграции
+  // 2. Таблица товаров
   db.run(`CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
     title TEXT,
@@ -55,6 +59,10 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`, (err) => {
     db.run(`ALTER TABLE products ADD COLUMN badge TEXT`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN model TEXT`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN description TEXT`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN sizes TEXT`, () => {});
+    db.run(`ALTER TABLE products ADD COLUMN photos TEXT`, () => {});
     if (!err) seedProducts();
   });
 
@@ -76,9 +84,15 @@ db.serialize(() => {
     track_number TEXT,
     track TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
+  )`, () => {
+    db.run(`ALTER TABLE orders ADD COLUMN total_price REAL`, () => {});
+    db.run(`ALTER TABLE orders ADD COLUMN discount_applied TEXT`, () => {});
+    db.run(`ALTER TABLE orders ADD COLUMN delivery TEXT`, () => {});
+    db.run(`ALTER TABLE orders ADD COLUMN address TEXT`, () => {});
+    db.run(`ALTER TABLE orders ADD COLUMN track TEXT`, () => {});
+  });
 
-  // 4. Таблица новостей + миграция столбца content
+  // 4. Таблица новостей
   db.run(`CREATE TABLE IF NOT EXISTS news (
     id TEXT PRIMARY KEY,
     title TEXT,
@@ -89,6 +103,8 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`, (err) => {
     db.run(`ALTER TABLE news ADD COLUMN content TEXT`, () => {});
+    db.run(`ALTER TABLE news ADD COLUMN photo TEXT`, () => {});
+    db.run(`ALTER TABLE news ADD COLUMN date TEXT`, () => {});
     if (!err) seedNews();
   });
 
@@ -103,7 +119,12 @@ db.serialize(() => {
     comment TEXT,
     status TEXT DEFAULT 'approved',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`, (err) => { if (!err) seedReviews(); });
+  )`, (err) => {
+    db.run(`ALTER TABLE reviews ADD COLUMN name TEXT`, () => {});
+    db.run(`ALTER TABLE reviews ADD COLUMN product TEXT`, () => {});
+    db.run(`ALTER TABLE reviews ADD COLUMN comment TEXT`, () => {});
+    if (!err) seedReviews();
+  });
 
   // 6. Таблица саппорта
   db.run(`CREATE TABLE IF NOT EXISTS support_messages (
