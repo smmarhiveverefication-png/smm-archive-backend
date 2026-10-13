@@ -1,7 +1,7 @@
 /**
  * ============================================================================
  * SMM ARCHIVE — DATABASE ENGINE MODULE (DATABASE.JS)
- * SQLite3 Persistent Storage Management & Initial Seed
+ * SQLite3 Persistent Storage Management with Auto-Migration
  * ============================================================================
  */
 
@@ -35,7 +35,12 @@ db.serialize(() => {
     is_verified INTEGER DEFAULT 0,
     email_code TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
+  )`, () => {
+    // Безопасное добавление колонок, если таблица уже существовала старой
+    db.run(`ALTER TABLE users ADD COLUMN balance REAL DEFAULT 1000.0`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN bonus_balance REAL DEFAULT 1000.0`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`, () => {});
+  });
 
   // 2. Таблица товаров
   db.run(`CREATE TABLE IF NOT EXISTS products (
@@ -49,7 +54,10 @@ db.serialize(() => {
     sizes TEXT,
     photos TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`, (err) => { if (!err) seedProducts(); });
+  )`, (err) => {
+    db.run(`ALTER TABLE products ADD COLUMN badge TEXT`, () => {});
+    if (!err) seedProducts();
+  });
 
   // 3. Таблица заказов
   db.run(`CREATE TABLE IF NOT EXISTS orders (
@@ -110,17 +118,19 @@ db.serialize(() => {
   db.run(`CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);`);
 
   // Админы
-  const admins = [
-    { login: 'Fedotov2209', pass: 'S22092009', name: 'Fedotov', email: 'Alexgood135889@Gmail.com' },
-    { login: 'Butilkin1906', pass: 'M19072009', name: 'Butilkin', email: 'juicy.789pbz@gmail.com' },
-    { login: 'Sereda1703', pass: 'M17032009', name: 'Sereda', email: 'markussereda123@gmail.com' }
-  ];
+  setTimeout(() => {
+    const admins = [
+      { login: 'Fedotov2209', pass: 'S22092009', name: 'Fedotov', email: 'Alexgood135889@Gmail.com' },
+      { login: 'Butilkin1906', pass: 'M19072009', name: 'Butilkin', email: 'juicy.789pbz@gmail.com' },
+      { login: 'Sereda1703', pass: 'M17032009', name: 'Sereda', email: 'markussereda123@gmail.com' }
+    ];
 
-  admins.forEach(a => {
-    const ref = 'REF-' + Math.random().toString(36).substring(2, 7).toUpperCase();
-    db.run(`INSERT OR IGNORE INTO users (login, password, email, name, is_admin, is_verified, referral_code, balance, bonus_balance) VALUES (?, ?, ?, ?, 1, 1, ?, 99999, 99999)`,
-      [a.login, a.pass, a.email, a.name, ref]);
-  });
+    admins.forEach(a => {
+      const ref = 'REF-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+      db.run(`INSERT OR IGNORE INTO users (login, password, email, name, is_admin, is_verified, referral_code, balance, bonus_balance) VALUES (?, ?, ?, ?, 1, 1, ?, 99999, 99999)`,
+        [a.login, a.pass, a.email, a.name, ref]);
+    });
+  }, 500);
 });
 
 function seedProducts() {
