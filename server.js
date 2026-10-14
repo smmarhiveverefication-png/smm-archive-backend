@@ -11,6 +11,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
+const cors = require('cors'); // Обязательный модуль для CORS
 const bcrypt = require('bcrypt'); // Профессиональное хеширование паролей
 const jwt = require('jsonwebtoken'); // Защищенные токены сессий
 const db = require('./database'); // Пул подключений PostgreSQL из модуля database.js
@@ -22,6 +23,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'smmarchive_secure_jwt_secret_key_2
 // ============================================================================
 // 1. БАЗОВЫЕ МИДЛВЕРЫ И НАСТРОЙКИ СЕРВЕРА
 // ============================================================================
+app.use(cors({
+  origin: ['https://www.smmarchive.store', 'http://localhost:3000'],
+  credentials: true
+}));
+
 app.use(bodyParser.json({ limit: '15mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '15mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
