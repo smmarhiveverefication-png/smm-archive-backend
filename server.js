@@ -24,8 +24,15 @@ const JWT_SECRET = process.env.JWT_SECRET || 'smmarchive_secure_jwt_secret_key_2
 // 1. БАЗОВЫЕ МИДЛВЕРЫ И НАСТРОЙКИ СЕРВЕРА
 // ============================================================================
 app.use(cors({
-  origin: ['https://www.smmarchive.store', 'http://localhost:3000'],
-  credentials: true
+  origin: [
+    'https://www.smmarchive.store',
+    'https://smmarchive.store',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(bodyParser.json({ limit: '15mb' }));
@@ -128,7 +135,7 @@ app.post('/api/auth/register', async (req, res) => {
 
     const insertRes = await db.query(
       `INSERT INTO users (login, password, email, phone, name, referral_code, email_code, is_verified, balance) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 1000) RETURNING id`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0) RETURNING id`,
       [login, hashedPassword, email, phone, login, refCode, emailCode]
     );
 
@@ -191,7 +198,7 @@ app.post('/api/auth/verify-email', async (req, res) => {
       token,
       userId: user.id,
       name: user.name, 
-      balance: user.balance || 1000, 
+      balance: user.balance || 0, 
       referral_code: user.referral_code,
       ref_count: user.ref_count || 0,
       tg_discount_claimed: user.tg_discount_claimed || 0
@@ -241,7 +248,7 @@ app.post('/api/auth/login', async (req, res) => {
       token,
       userId: user.id, 
       name: user.name, 
-      balance: user.balance || 1000, 
+      balance: user.balance || 0, 
       referral_code: user.referral_code,
       ref_count: user.ref_count || 0,
       is_admin: user.is_admin,
