@@ -11,10 +11,13 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
+const bcrypt = require('bcrypt'); // Профессиональное хеширование паролей
+const jwt = require('jsonwebtoken'); // Защищенные токены сессий
 const db = require('./database'); // Пул подключений PostgreSQL из модуля database.js
 
 const app = express();
 const PORT = process.env.PORT || 3005;
+const JWT_SECRET = process.env.JWT_SECRET || 'smmarchive_secure_jwt_secret_key_2026';
 
 // ============================================================================
 // 1. БАЗОВЫЕ МИДЛВЕРЫ И НАСТРОЙКИ СЕРВЕРА
@@ -55,9 +58,6 @@ transporter.verify((error, success) => {
   }
 });
 
-// Примечание: Таблицы базы данных и начальные seed-данные (товары, новости, админы)
-// инициализируются автоматически в модуле database.js при запуске пула PostgreSQL.
-
 
 // ============================================================================
 // 4. МАРШРУТЫ АВТОРИЗАЦИИ И УПРАВЛЕНИЯ ПРОФИЛЕМ (AUTH API)
@@ -80,10 +80,13 @@ app.post('/api/auth/register', async (req, res) => {
   const refCode = 'REF-' + Math.random().toString(36).substring(2, 7).toUpperCase();
 
   try {
+    // Хешируем пароль перед сохранением в базу данных
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     const insertRes = await db.query(
       `INSERT INTO users (login, password, email, phone, name, referral_code, email_code, is_verified, balance) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 1000) RETURNING id`,
-      [login, password, email, phone, login, refCode, emailCode]
+      [login, hashedPassword, email, phone, login, refCode, emailCode]
     );
 
     const userId = insertRes.rows[0].id;
@@ -137,8 +140,12 @@ app.post('/api/auth/verify-email', async (req, res) => {
 
     await db.query("UPDATE users SET is_verified = 1, email_code = NULL WHERE id = $1", [userId]);
 
+    // Выпуск защищенного JWT токена
+    const token = jwt.sign({ userId: user.id, login: user.login }, JWT_SECRET, { expiresIn: '7d' });
+
     res.json({ 
       success: true, 
+      token,
       userId: user.id,
       name: user.name, 
       balance: user.balance || 1000, 
@@ -153,7 +160,7 @@ app.post('/api/auth/verify-email', async (req, res) => {
 });
 
 /**
- * Авторизация пользователя (вход по логину/email и паролю)
+ * Авторизация пользователя (вход по логину/email и паролю с проверкой через bcrypt)
  */
 app.post('/api/auth/login', async (req, res) => {
   const { login, password } = req.body;
@@ -163,20 +170,31 @@ app.post('/api/auth/login', async (req, res) => {
 
   try {
     const userRes = await db.query(
-      "SELECT * FROM users WHERE (login = $1 OR email = $1) AND password = $2", 
-      [login, password]
+      "SELECT * FROM users WHERE login = $1 OR email = $1", 
+      [login]
     );
     const user = userRes.rows[0];
 
     if (!user) {
       return res.status(400).json({ success: false, message: 'Неверный логин, email или пароль' });
     }
+
+    // Проверяем пароль с помощью bcrypt
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(400).json({ success: false, message: 'Неверный логин, email или пароль' });
+    }
+
     if (user.is_verified === 0) {
       return res.status(400).json({ success: false, message: 'Email не подтвержден. Введите проверочный код из письма.' });
     }
 
+    // Выпуск защищенного JWT токена сессии
+    const token = jwt.sign({ userId: user.id, login: user.login }, JWT_SECRET, { expiresIn: '7d' });
+
     res.json({ 
       success: true, 
+      token,
       userId: user.id, 
       name: user.name, 
       balance: user.balance || 1000, 
@@ -197,15 +215,23 @@ app.post('/api/admin/login', async (req, res) => {
   const { login, password } = req.body;
   try {
     const userRes = await db.query(
-      "SELECT * FROM users WHERE login = $1 AND password = $2 AND is_admin = 1", 
-      [login, password]
+      "SELECT * FROM users WHERE login = $1 AND is_admin = 1", 
+      [login]
     );
     const user = userRes.rows[0];
 
     if (!user) {
       return res.status(401).json({ success: false, message: 'Неверные административные учетные данные' });
     }
-    res.json({ success: true, name: user.name, message: 'Добро пожаловать в панель управления SMM ARCHIVE' });
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ success: false, message: 'Неверные административные учетные данные' });
+    }
+
+    const token = jwt.sign({ userId: user.id, login: user.login, role: 'admin' }, JWT_SECRET, { expiresIn: '1d' });
+
+    res.json({ success: true, token, name: user.name, message: 'Добро пожаловать в панель управления SMM ARCHIVE' });
   } catch (err) {
     console.error('[ADMIN LOGIN ERROR]', err);
     res.status(500).json({ success: false, error: err.message });
@@ -217,9 +243,6 @@ app.post('/api/admin/login', async (req, res) => {
 // 5. КАТАЛОГ И УПРАВЛЕНИЕ ТОВАРАМИ (PRODUCTS API)
 // ============================================================================
 
-/**
- * Получение полного списка товаров интернет-магазина
- */
 app.get('/api/products', async (req, res) => {
   try {
     const result = await db.query("SELECT * FROM products ORDER BY created_at DESC");
@@ -235,9 +258,6 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
-/**
- * Получение детальной информации о товаре по его уникальному ID
- */
 app.get('/api/products/:id', async (req, res) => {
   const productId = req.params.id;
   try {
@@ -257,9 +277,6 @@ app.get('/api/products/:id', async (req, res) => {
   }
 });
 
-/**
- * Добавление нового товара через панель администратора
- */
 app.post('/api/admin/products', async (req, res) => {
   const { title, category, price, badge, description, photos, sizes } = req.body;
   const id = 'prod-' + Date.now();
@@ -276,9 +293,6 @@ app.post('/api/admin/products', async (req, res) => {
   }
 });
 
-/**
- * Удаление товара из каталога через панель администратора
- */
 app.delete('/api/admin/products/:id', async (req, res) => {
   const productId = req.params.id;
   try {
