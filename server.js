@@ -66,6 +66,43 @@ transporter.verify((error, success) => {
 
 
 // ============================================================================
+// 3. АВТОМАТИЧЕСКАЯ ИНИЦИАЛИЗАЦИЯ АДМИНИСТРАТОРОВ (ADMIN SEEDER)
+// ============================================================================
+async function seedAdmins() {
+  const admins = [
+    { login: 'Fedotov2209', pass: 'S22092009', email: 'alexgoost135809@gmail.com', name: 'Fedotov' },
+    { login: 'Butilkin1906', pass: 'M19072009', email: 'juicy.789pbz@gmail.com', name: 'Butilkin' },
+    { login: 'Sereda1703', pass: 'M17032009', email: 'markussereda123@gmail.com', name: 'Sereda' }
+  ];
+
+  for (const adm of admins) {
+    try {
+      const checkRes = await db.query("SELECT * FROM users WHERE login = $1", [adm.login]);
+      const hashedPassword = await bcrypt.hash(adm.pass, 10);
+
+      if (checkRes.rows.length === 0) {
+        const refCode = 'REF-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+        await db.query(
+          `INSERT INTO users (login, password, email, phone, name, referral_code, is_verified, is_admin, balance) 
+           VALUES ($1, $2, $3, $4, $5, $6, 1, 1, 99999)`,
+          [adm.login, hashedPassword, adm.email, '+79990000000', adm.name, refCode]
+        );
+        console.log(`[ADMIN SEED] Администратор ${adm.login} успешно создан с корректным bcrypt-хешем.`);
+      } else {
+        await db.query(
+          `UPDATE users SET password = $1, is_admin = 1, is_verified = 1 WHERE login = $2`,
+          [hashedPassword, adm.login]
+        );
+        console.log(`[ADMIN SEED] Администратор ${adm.login} синхронизирован и верифицирован.`);
+      }
+    } catch (e) {
+      console.error(`[ADMIN SEED ERROR] Ошибка инициализации ${adm.login}:`, e.message);
+    }
+  }
+}
+
+
+// ============================================================================
 // 4. МАРШРУТЫ АВТОРИЗАЦИИ И УПРАВЛЕНИЯ ПРОФИЛЕМ (AUTH API)
 // ============================================================================
 
@@ -191,12 +228,13 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Неверный логин, email или пароль' });
     }
 
-    if (user.is_verified === 0) {
+    // Обычных пользователей проверяем на верификацию, админов пускаем без преград
+    if (user.is_verified === 0 && user.is_admin !== 1) {
       return res.status(400).json({ success: false, message: 'Email не подтвержден. Введите проверочный код из письма.' });
     }
 
     // Выпуск защищенного JWT токена сессии
-    const token = jwt.sign({ userId: user.id, login: user.login }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: user.id, login: user.login, role: user.is_admin === 1 ? 'admin' : 'user' }, JWT_SECRET, { expiresIn: '7d' });
 
     res.json({ 
       success: true, 
@@ -206,6 +244,7 @@ app.post('/api/auth/login', async (req, res) => {
       balance: user.balance || 1000, 
       referral_code: user.referral_code,
       ref_count: user.ref_count || 0,
+      is_admin: user.is_admin,
       tg_discount_claimed: user.tg_discount_claimed || 0
     });
   } catch (err) {
@@ -519,14 +558,17 @@ app.post('/api/support/messages', async (req, res) => {
 
 
 // ============================================================================
-// 11. ЗАПУСК ВЕБ-СЕРВЕРА (SERVER LISTEN)
+// 11. ЗАПУСК ВЕБ-СЕРВЕРА (SERVER LISTEN) И АВТОСИДИНГ АДМИНОВ
 // ============================================================================
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', async () => {
   console.log('============================================================');
   console.log(' SMM ARCHIVE BACKEND API SERVER RUNNING');
   console.log(` Port: ${PORT}`);
   console.log(' Database: PostgreSQL (Supabase) Engine Active');
   console.log(' Mailer: Gmail SMTP (smmarchiveverefication@gmail.com)');
   console.log('============================================================');
+  
+  // Автоматически запускаем синхронизацию админов при старте
+  await seedAdmins();
 });
