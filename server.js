@@ -201,7 +201,8 @@ app.post('/api/auth/verify-email', async (req, res) => {
       balance: user.balance || 0, 
       referral_code: user.referral_code,
       ref_count: user.ref_count || 0,
-      tg_discount_claimed: user.tg_discount_claimed || 0
+      tg_discount_claimed: user.tg_discount_claimed || 0,
+      is_admin: user.is_admin || 0
     });
   } catch (err) {
     console.error('[VERIFY ERROR]', err);
@@ -287,6 +288,81 @@ app.post('/api/admin/login', async (req, res) => {
   } catch (err) {
     console.error('[ADMIN LOGIN ERROR]', err);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * Запрос на сброс пароля (отправка 4-значного кода на почту)
+ */
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'Введите Email адрес' });
+  }
+
+  try {
+    const userRes = await db.query("SELECT * FROM users WHERE email = $1", [email]);
+    const user = userRes.rows[0];
+
+    if (user) {
+      const resetCode = Math.floor(1000 + Math.random() * 9000).toString();
+      await db.query("UPDATE users SET email_code = $1 WHERE id = $2", [resetCode, user.id]);
+
+      await transporter.sendMail({
+        from: '"SMM ARCHIVE" <smmarchiveverefication@gmail.com>',
+        to: email,
+        subject: 'Восстановление пароля — SMM ARCHIVE',
+        text: `Ваш код для сброса пароля: ${resetCode}`,
+        html: `
+          <div style="background:#090b0b; color:#f4f3ef; padding:35px; font-family:sans-serif; border-radius:8px;">
+            <h2 style="color:#00ff66; margin-top:0;">SMM ARCHIVE</h2>
+            <p>Здравствуйте, <strong>${user.login}</strong>!</p>
+            <p>Был запрошен сброс пароля для вашей учетной записи.</p>
+            <p>Ваш проверочный 4-значный код:</p>
+            <div style="background:#141919; border:1px solid #333; padding:15px; font-size:28px; font-weight:bold; letter-spacing:8px; color:#00ff66; text-align:center; margin:20px 0; border-radius:6px;">
+              ${resetCode}
+            </div>
+            <p style="font-size:12px; color:#888;">Если вы не запрашивали сброс, просто проигнорируйте это письмо.</p>
+          </div>
+        `
+      });
+    }
+
+    res.json({ success: true, message: 'Если такой Email зарегистрирован, на него отправлен код сброса.' });
+  } catch (err) {
+    console.error('[FORGOT PASSWORD ERROR]', err);
+    res.status(500).json({ success: false, message: 'Ошибка отправки письма с кодом' });
+  }
+});
+
+/**
+ * Сброс пароля по коду из почты с подтверждением двух полей ввода
+ */
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { email, code, newPassword, confirmPassword } = req.body;
+  if (!email || !code || !newPassword || !confirmPassword) {
+    return res.status(400).json({ success: false, message: 'Заполните все поля' });
+  }
+
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ success: false, message: 'Новые пароли не совпадают' });
+  }
+
+  try {
+    const userRes = await db.query("SELECT * FROM users WHERE email = $1", [email]);
+    const user = userRes.rows[0];
+
+    if (!user || user.email_code !== code) {
+      return res.status(400).json({ success: false, message: 'Введен неверный код или истек срок его действия' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await db.query("UPDATE users SET password = $1, email_code = NULL WHERE id = $2", [hashedPassword, user.id]);
+
+    res.json({ success: true, message: 'Пароль успешно изменен. Теперь вы можете войти.' });
+  } catch (err) {
+    console.error('[RESET PASSWORD ERROR]', err);
+    res.status(500).json({ success: false, message: 'Ошибка сброса пароля на сервере' });
   }
 });
 
