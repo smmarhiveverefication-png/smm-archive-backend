@@ -1,7 +1,7 @@
 /**
  * ============================================================================
  * SMM ARCHIVE — MASTER BACKEND SERVER (SERVER.JS)
- * Express / PostgreSQL (Supabase) / Nodemailer Gmail Production API Engine
+ * Express / PostgreSQL (Supabase) / Nodemailer Gmail & Telegram Bot Production API Engine
  * Архитектура: Reg.ru / Production Ready / Cloud Scale (With Forced CORS)
  * ============================================================================
  */
@@ -10,6 +10,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
 const nodemailer = require('nodemailer');
+const TelegramBot = require('node-telegram-bot-api');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -66,12 +67,12 @@ app.get('/', (req, res) => {
 });
 
 // ============================================================================
-// 2. НАСТРОЙКА ПОЧТОВОГО СЕРВЕРА GMAIL (NODEMAILER)
+// 2. НАСТРОЙКА ПОЧТОВОГО СЕРВЕРА GMAIL И TELEGRAM БОТА
 // ============================================================================
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'smmarchiveverefication@gmail.com',
+    user: 'smmarhiveverefication@gmail.com',
     pass: 'tmjzibdmgkndlrwm'
   }
 });
@@ -81,6 +82,41 @@ transporter.verify((error, success) => {
     console.error('[GMAIL ERROR] Ошибка инициализации почтового клиента:', error);
   } else {
     console.log('[GMAIL SUCCESS] Почтовый сервер успешно подключен и готов к рассылке.');
+  }
+});
+
+// Инициализация Telegram бота для реальной привязки аккаунтов
+const TELEGRAM_BOT_TOKEN = '8787531145:AAEGO7IRwWQrT_EJvvhF5nzImWAnpYMa0g4';
+const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+
+bot.on('polling_error', (error) => {
+  console.error('[TELEGRAM POLLING ERROR]', error.code, error.message);
+});
+
+// Обработка сообщений в Telegram боте
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text ? msg.text.trim() : '';
+
+  if (text.startsWith('/start')) {
+    bot.sendMessage(chatId, '🖤 Добро пожаловать в SMM ARCHIVE!\n\nВведите ваш 6-значный код подтверждения с сайта, чтобы привязать Telegram-аккаунт.');
+    return;
+  }
+
+  // Если пользователь прислал 6-значный код для привязки
+  if (/^\d{6}$/.test(text)) {
+    try {
+      const userCheck = await db.query('SELECT * FROM users WHERE tg_code = $1', [text]);
+      if (userCheck.rows.length > 0) {
+        await db.query('UPDATE users SET tg_id = $1, is_tg_verified = 1, tg_code = NULL WHERE tg_code = $2', [chatId, text]);
+        bot.sendMessage(chatId, '✅ Аккаунт успешно привязан к SMM ARCHIVE!');
+      } else {
+        bot.sendMessage(chatId, '❌ Неверный или устаревший код подтверждения.');
+      }
+    } catch (err) {
+      console.error('[TELEGRAM BOT DB ERROR]', err);
+      bot.sendMessage(chatId, '⚠️ Произошла ошибка на сервере при привязке аккаунта.');
+    }
   }
 });
 
@@ -309,7 +345,32 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // ============================================================================
-// 5. КАТАЛОГ И ТОВАРЫ (PRODUCTS API)
+// 5. TELEGRAM INTEGRATION API (Генерация кода для привязки Telegram)
+// ============================================================================
+app.post('/api/auth/generate-tg-code', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) {
+    return res.status(400).json({ success: false, message: 'Не указан ID пользователя' });
+  }
+
+  const tgCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+  try {
+    await db.query("UPDATE users SET tg_code = $1 WHERE id = $2", [tgCode, userId]);
+    res.json({ 
+      success: true, 
+      code: tgCode, 
+      botUsername: 'smmarchive_bot', // Укажи юзернейм своего созданного через BotFather бота
+      message: 'Код сгенерирован. Отправьте его нашему Telegram-боту.' 
+    });
+  } catch (err) {
+    console.error('[GENERATE TG CODE ERROR]', err);
+    res.status(500).json({ success: false, message: 'Ошибка генерации Telegram кода' });
+  }
+});
+
+// ============================================================================
+// 6. КАТАЛОГ И ТОВАРЫ (PRODUCTS API)
 // ============================================================================
 app.get('/api/products', async (req, res) => {
   try {
@@ -326,7 +387,7 @@ app.get('/api/products', async (req, res) => {
 });
 
 // ============================================================================
-// 6. НОВОСТИ И ОТЗЫВЫ (NEWS & REVIEWS API)
+// 7. НОВОСТИ И ОТЗЫВЫ (NEWS & REVIEWS API)
 // ============================================================================
 app.get('/api/news', async (req, res) => {
   try {
@@ -347,7 +408,7 @@ app.get('/api/reviews', async (req, res) => {
 });
 
 // ============================================================================
-// 7. ЗАКАЗЫ И ДОСТАВКА (ORDERS API)
+// 8. ЗАКАЗЫ И ДОСТАВКА (ORDERS API)
 // ============================================================================
 app.post('/api/orders', async (req, res) => {
   const { userId, number, total, delivery, address, items } = req.body;
@@ -369,7 +430,7 @@ app.post('/api/orders', async (req, res) => {
 });
 
 // ============================================================================
-// 8. СЛУЖБА ПОДДЕРЖКИ (SUPPORT API)
+// 9. СЛУЖБА ПОДДЕРЖКИ (SUPPORT API)
 // ============================================================================
 app.get('/api/support/messages', async (req, res) => {
   try {
@@ -396,7 +457,7 @@ app.post('/api/support/messages', async (req, res) => {
 });
 
 // ============================================================================
-// 9. ЗАПУСК СЕРВЕРА
+// 10. ЗАПУСК СЕРВЕРА
 // ============================================================================
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`SMM ARCHIVE BACKEND RUNNING ON PORT ${PORT}`);
