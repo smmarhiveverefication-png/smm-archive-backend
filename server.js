@@ -69,10 +69,8 @@ app.get('/', (req, res) => {
 // ============================================================================
 // 2. НАСТРОЙКА RESEND API И TELEGRAM БОТА
 // ============================================================================
-// Используем ваш реальный API-ключ от Resend
 const resend = new Resend('re_ATyU1DR1_2RaQZNx7KoMJuoMWPtebds');
 
-// Инициализация Telegram бота для привязки аккаунтов
 const TELEGRAM_BOT_TOKEN = '8787531145:AAEGO7IRwWQrT_EJvvhF5nzImWAnpYMa0g4';
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
@@ -80,7 +78,6 @@ bot.on('polling_error', (error) => {
   console.error('[TELEGRAM POLLING ERROR]', error.code, error.message);
 });
 
-// Обработка сообщений в Telegram боте
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text ? msg.text.trim() : '';
@@ -143,7 +140,7 @@ async function seedAdmins() {
 }
 
 // ============================================================================
-// 4. МАРШРУТЫ АВТОРИЗАЦИИ И ПОЧТОВОЙ ВЕРИФИКАЦИИ ЧЕРЕЗ RESEND API
+// 4. МАРШРУТЫ АВТОРИЗАЦИИ И ПОЧТОВОЙ ВЕРИФИКАЦИИ ЧЕРЕЗ RESEND API (ДОМЕН)
 // ============================================================================
 
 app.post('/api/auth/register', async (req, res) => {
@@ -170,10 +167,10 @@ app.post('/api/auth/register', async (req, res) => {
 
     const userId = insertRes.rows[0].id;
 
-    // Отправка письма через Resend API
+    // Отправка письма через Resend с официального корпоративного домена
     try {
       await resend.emails.send({
-        from: 'SMM ARCHIVE <onboarding@resend.dev>',
+        from: 'SMM ARCHIVE <support@smmarchive.store>',
         to: [email],
         subject: 'Подтверждение регистрации — SMM ARCHIVE',
         html: `
@@ -287,7 +284,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
       try {
         await resend.emails.send({
-          from: 'SMM ARCHIVE <onboarding@resend.dev>',
+          from: 'SMM ARCHIVE <support@smmarchive.store>',
           to: [email],
           subject: 'Восстановление пароля — SMM ARCHIVE',
           html: `
@@ -341,7 +338,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // ============================================================================
-// 5. TELEGRAM INTEGRATION API (Генерация кода для привязки Telegram)
+// 5. TELEGRAM INTEGRATION API
 // ============================================================================
 app.post('/api/auth/generate-tg-code', async (req, res) => {
   const { userId } = req.body;
