@@ -157,7 +157,7 @@ async function seedAdmins() {
 }
 
 // ============================================================================
-// 4. МАРШРУТЫ АВТОРИЗАЦИИ И УПРАВЛЕНИЯ ПРОФИЛЕМ (AUTH API)
+// 4. МАРШРУТЫ АВТОРИЗАЦИИ И УПРАВЛЕНИЯ ПРОФИЛЕМ (AUTH API) С УСИЛЕННЫМ ЛОГИРОВАНИЕМ
 // ============================================================================
 
 app.post('/api/auth/register', async (req, res) => {
@@ -184,24 +184,40 @@ app.post('/api/auth/register', async (req, res) => {
 
     const userId = insertRes.rows[0].id;
 
-    await transporter.sendMail({
-      from: '"SMM ARCHIVE" <smmarchiveverefication@gmail.com>',
-      to: email,
-      subject: 'Подтверждение регистрации — SMM ARCHIVE',
-      text: `Здравствуйте, ${login}! Ваш код подтверждения регистрации: ${emailCode}`,
-      html: `
-        <div style="background:#090b0b; color:#f4f3ef; padding:35px; font-family:sans-serif; border-radius:8px;">
-          <h2 style="color:#00ff66; margin-top:0;">SMM ARCHIVE</h2>
-          <p>Здравствуйте, <strong>${login}</strong>!</p>
-          <p>Ваш проверочный 4-значный код подтверждения Email:</p>
-          <div style="background:#141919; border:1px solid #333; padding:15px; font-size:28px; font-weight:bold; letter-spacing:8px; color:#00ff66; text-align:center; margin:20px 0; border-radius:6px;">
-            ${emailCode}
+    // УСИЛЕННАЯ ПОПЫТКА ОТПРАВКИ ПОЧТЫ С ФОЛБЭКОМ В ЛОГИ
+    let mailSentStatus = true;
+    try {
+      await transporter.sendMail({
+        from: '"SMM ARCHIVE" <smmarchiveverefication@gmail.com>',
+        to: email,
+        subject: 'Подтверждение регистрации — SMM ARCHIVE',
+        text: `Здравствуйте, ${login}! Ваш код подтверждения регистрации: ${emailCode}`,
+        html: `
+          <div style="background:#10081c; color:#f3f0f7; padding:35px; font-family:sans-serif; border-radius:12px; border:1px solid rgba(192,132,252,0.2);">
+            <h2 style="color:#c084fc; margin-top:0;">SMM ARCHIVE</h2>
+            <p>Здравствуйте, <strong>${login}</strong>!</p>
+            <p>Ваш проверочный 4-значный код подтверждения Email:</p>
+            <div style="background:#160a28; border:1px dashed #c084fc; padding:15px; font-size:28px; font-weight:bold; letter-spacing:8px; color:#c084fc; text-align:center; margin:20px 0; border-radius:8px;">
+              ${emailCode}
+            </div>
           </div>
-        </div>
-      `
-    });
+        `
+      });
+      console.log(`[GMAIL SUCCESS] Письмо с кодом ${emailCode} успешно отправлено на ${email}`);
+    } catch (mailErr) {
+      mailSentStatus = false;
+      console.error('[GMAIL SEND ERROR — ОШИБКА SMTP]', mailErr.message);
+      console.log(`\n========================================`);
+      console.log(`[РЕЖИМ ОТЛАДКИ / КОД ДЛЯ ${email}]: ${emailCode}`);
+      console.log(`========================================\n`);
+    }
 
-    res.json({ success: true, userId, message: 'Код подтверждения успешно отправлен на ваш Email' });
+    res.json({ 
+      success: true, 
+      userId, 
+      debugCode: mailSentStatus ? undefined : emailCode, // Возвращаем в ответе для удобства, если SMTP заблокирован
+      message: mailSentStatus ? 'Код подтверждения успешно отправлен на ваш Email' : 'Письмо заблокировано SMTP, но аккаунт создан. Проверьте консоль сервера.' 
+    });
   } catch (err) {
     console.error('[REGISTRATION ERROR]', err);
     return res.status(400).json({ success: false, message: 'Указанный логин или Email уже зарегистрированы в системе' });
@@ -293,21 +309,26 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       const resetCode = Math.floor(1000 + Math.random() * 9000).toString();
       await db.query("UPDATE users SET email_code = $1 WHERE id = $2", [resetCode, user.id]);
 
-      await transporter.sendMail({
-        from: '"SMM ARCHIVE" <smmarchiveverefication@gmail.com>',
-        to: email,
-        subject: 'Восстановление пароля — SMM ARCHIVE',
-        text: `Ваш код для сброса пароля: ${resetCode}`,
-        html: `
-          <div style="background:#090b0b; color:#f4f3ef; padding:35px; font-family:sans-serif; border-radius:8px;">
-            <h2 style="color:#00ff66; margin-top:0;">SMM ARCHIVE</h2>
-            <p>Ваш проверочный 4-значный код для сброса пароля:</p>
-            <div style="background:#141919; border:1px solid #333; padding:15px; font-size:28px; font-weight:bold; letter-spacing:8px; color:#00ff66; text-align:center; margin:20px 0; border-radius:6px;">
-              ${resetCode}
+      try {
+        await transporter.sendMail({
+          from: '"SMM ARCHIVE" <smmarchiveverefication@gmail.com>',
+          to: email,
+          subject: 'Восстановление пароля — SMM ARCHIVE',
+          text: `Ваш код для сброса пароля: ${resetCode}`,
+          html: `
+            <div style="background:#10081c; color:#f3f0f7; padding:35px; font-family:sans-serif; border-radius:12px; border:1px solid rgba(192,132,252,0.2);">
+              <h2 style="color:#c084fc; margin-top:0;">SMM ARCHIVE</h2>
+              <p>Ваш проверочный 4-значный код для сброса пароля:</p>
+              <div style="background:#160a28; border:1px dashed #c084fc; padding:15px; font-size:28px; font-weight:bold; letter-spacing:8px; color:#c084fc; text-align:center; margin:20px 0; border-radius:8px;">
+                ${resetCode}
+              </div>
             </div>
-          </div>
-        `
-      });
+          `
+        });
+      } catch (mailErr) {
+        console.error('[FORGOT MAIL ERROR]', mailErr.message);
+        console.log(`[ДЕБАГ СБРОСА ПАРОЛЯ ДЛЯ ${email}]: ${resetCode}`);
+      }
     }
 
     res.json({ success: true, message: 'Если такой Email зарегистрирован, на него отправлен код сброса.' });
@@ -360,7 +381,7 @@ app.post('/api/auth/generate-tg-code', async (req, res) => {
     res.json({ 
       success: true, 
       code: tgCode, 
-      botUsername: 'smmarchive_bot', // Укажи юзернейм своего созданного через BotFather бота
+      botUsername: 'smmarchive_bot',
       message: 'Код сгенерирован. Отправьте его нашему Telegram-боту.' 
     });
   } catch (err) {
