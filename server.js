@@ -1,7 +1,7 @@
 /**
  * ============================================================================
  * SMM ARCHIVE — MASTER BACKEND SERVER (SERVER.JS)
- * Express / PostgreSQL (Supabase) / Nodemailer Gmail & Telegram Bot Production API Engine
+ * Express / PostgreSQL (Supabase) / Resend API & Telegram Bot Production API Engine
  * Архитектура: Reg.ru / Production Ready / Cloud Scale (With Forced CORS)
  * ============================================================================
  */
@@ -9,7 +9,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const TelegramBot = require('node-telegram-bot-api');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
@@ -67,25 +67,12 @@ app.get('/', (req, res) => {
 });
 
 // ============================================================================
-// 2. НАСТРОЙКА ПОЧТОВОГО СЕРВЕРА GMAIL И TELEGRAM БОТА
+// 2. НАСТРОЙКА RESEND API И TELEGRAM БОТА
 // ============================================================================
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'smmarhiveverefication@gmail.com',
-    pass: 'tmjzibdmgkndlrwm'
-  }
-});
+// Используем ваш реальный API-ключ от Resend
+const resend = new Resend('re_ATyU1DR1_2RaQZNx7KoMJuoMWPtebds');
 
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('[GMAIL ERROR] Ошибка инициализации почтового клиента:', error);
-  } else {
-    console.log('[GMAIL SUCCESS] Почтовый сервер успешно подключен и готов к рассылке.');
-  }
-});
-
-// Инициализация Telegram бота для реальной привязки аккаунтов
+// Инициализация Telegram бота для привязки аккаунтов
 const TELEGRAM_BOT_TOKEN = '8787531145:AAEGO7IRwWQrT_EJvvhF5nzImWAnpYMa0g4';
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
@@ -103,7 +90,6 @@ bot.on('message', async (msg) => {
     return;
   }
 
-  // Если пользователь прислал 6-значный код для привязки
   if (/^\d{6}$/.test(text)) {
     try {
       const userCheck = await db.query('SELECT * FROM users WHERE tg_code = $1', [text]);
@@ -157,7 +143,7 @@ async function seedAdmins() {
 }
 
 // ============================================================================
-// 4. МАРШРУТЫ АВТОРИЗАЦИИ И УПРАВЛЕНИЯ ПРОФИЛЕМ (AUTH API) С УСИЛЕННЫМ ЛОГИРОВАНИЕМ
+// 4. МАРШРУТЫ АВТОРИЗАЦИИ И ПОЧТОВОЙ ВЕРИФИКАЦИИ ЧЕРЕЗ RESEND API
 // ============================================================================
 
 app.post('/api/auth/register', async (req, res) => {
@@ -184,14 +170,12 @@ app.post('/api/auth/register', async (req, res) => {
 
     const userId = insertRes.rows[0].id;
 
-    // УСИЛЕННАЯ ПОПЫТКА ОТПРАВКИ ПОЧТЫ С ФОЛБЭКОМ В ЛОГИ
-    let mailSentStatus = true;
+    // Отправка письма через Resend API
     try {
-      await transporter.sendMail({
-        from: '"SMM ARCHIVE" <smmarchiveverefication@gmail.com>',
-        to: email,
+      await resend.emails.send({
+        from: 'SMM ARCHIVE <onboarding@resend.dev>',
+        to: [email],
         subject: 'Подтверждение регистрации — SMM ARCHIVE',
-        text: `Здравствуйте, ${login}! Ваш код подтверждения регистрации: ${emailCode}`,
         html: `
           <div style="background:#10081c; color:#f3f0f7; padding:35px; font-family:sans-serif; border-radius:12px; border:1px solid rgba(192,132,252,0.2);">
             <h2 style="color:#c084fc; margin-top:0;">SMM ARCHIVE</h2>
@@ -203,21 +187,13 @@ app.post('/api/auth/register', async (req, res) => {
           </div>
         `
       });
-      console.log(`[GMAIL SUCCESS] Письмо с кодом ${emailCode} успешно отправлено на ${email}`);
+      console.log(`[RESEND SUCCESS] Письмо с кодом ${emailCode} успешно отправлено на ${email}`);
     } catch (mailErr) {
-      mailSentStatus = false;
-      console.error('[GMAIL SEND ERROR — ОШИБКА SMTP]', mailErr.message);
-      console.log(`\n========================================`);
-      console.log(`[РЕЖИМ ОТЛАДКИ / КОД ДЛЯ ${email}]: ${emailCode}`);
-      console.log(`========================================\n`);
+      console.error('[RESEND ERROR]', mailErr.message);
+      console.log(`\n[РЕЖИМ ОТЛАДКИ / КОД ДЛЯ ${email}]: ${emailCode}\n`);
     }
 
-    res.json({ 
-      success: true, 
-      userId, 
-      debugCode: mailSentStatus ? undefined : emailCode, // Возвращаем в ответе для удобства, если SMTP заблокирован
-      message: mailSentStatus ? 'Код подтверждения успешно отправлен на ваш Email' : 'Письмо заблокировано SMTP, но аккаунт создан. Проверьте консоль сервера.' 
-    });
+    res.json({ success: true, userId, message: 'Код подтверждения успешно отправлен на ваш Email' });
   } catch (err) {
     console.error('[REGISTRATION ERROR]', err);
     return res.status(400).json({ success: false, message: 'Указанный логин или Email уже зарегистрированы в системе' });
@@ -310,11 +286,10 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       await db.query("UPDATE users SET email_code = $1 WHERE id = $2", [resetCode, user.id]);
 
       try {
-        await transporter.sendMail({
-          from: '"SMM ARCHIVE" <smmarchiveverefication@gmail.com>',
-          to: email,
+        await resend.emails.send({
+          from: 'SMM ARCHIVE <onboarding@resend.dev>',
+          to: [email],
           subject: 'Восстановление пароля — SMM ARCHIVE',
-          text: `Ваш код для сброса пароля: ${resetCode}`,
           html: `
             <div style="background:#10081c; color:#f3f0f7; padding:35px; font-family:sans-serif; border-radius:12px; border:1px solid rgba(192,132,252,0.2);">
               <h2 style="color:#c084fc; margin-top:0;">SMM ARCHIVE</h2>
