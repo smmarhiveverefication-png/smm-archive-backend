@@ -67,7 +67,7 @@ app.get('/', (req, res) => {
 });
 
 // ============================================================================
-// 2. НАСТРОЙКА RESEND API И TELEGRAM БОТА
+// 2. НАСТРОЙКА RESEND API И TELEGRAM БОТА (С ЗАЩИТОЙ ОТ 409 КОНФЛИКТА)
 // ============================================================================
 const resend = new Resend('re_ATyU1DR1_2RaQZNx7KoMJuoMWPtebds');
 
@@ -75,6 +75,10 @@ const TELEGRAM_BOT_TOKEN = '8787531145:AAEGO7IRwWQrT_EJvvhF5nzImWAnpYMa0g4';
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
 bot.on('polling_error', (error) => {
+  // Безопасный перехват конфликта множественных инстансов бота
+  if (error.code === 'ETELEGRAM' && error.message && error.message.includes('409 Conflict')) {
+    return;
+  }
   console.error('[TELEGRAM POLLING ERROR]', error.code, error.message);
 });
 
