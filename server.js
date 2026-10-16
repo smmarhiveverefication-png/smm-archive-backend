@@ -1,8 +1,7 @@
 /**
  * ============================================================================
- * SMM ARCHIVE — MASTER BACKEND SERVER (SERVER.JS)
- * Express / PostgreSQL (Supabase) / Resend API & Telegram Bot Production API Engine
- * Архитектура: Reg.ru / Production Ready / Cloud Scale (With Forced CORS)
+ * SMM ARCHIVE — OFFICIAL PRODUCTION MASTER SERVER (SERVER.JS)
+ * Express / PostgreSQL (Supabase) / Resend / Telegram Bot / YooMoney API
  * ============================================================================
  */
 
@@ -14,15 +13,17 @@ const TelegramBot = require('node-telegram-bot-api');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const axios = require('axios');
 const db = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3005;
-const JWT_SECRET = process.env.JWT_SECRET || 'smmarchive_secure_jwt_secret_key_2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'smmarchive_ultra_secure_jwt_key_2026';
 
-// ============================================================================
-// 1. ПРИНУДИТЕЛЬНЫЕ CORS ЗАГОЛОВКИ И МИДЛВЕРЫ
-// ============================================================================
+// ЮMoney Настройки (Замените на ваши реальные данные или переменные окружения)
+const YOOMONEY_SHOP_ID = process.env.YOOMONEY_SHOP_ID || 'YOUR_SHOP_ID';
+const YOOMONEY_SECRET_KEY = process.env.YOOMONEY_SECRET_KEY || 'YOUR_SECRET_KEY';
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin) {
@@ -41,12 +42,7 @@ app.use((req, res, next) => {
 });
 
 app.use(cors({
-  origin: [
-    'https://www.smmarchive.store',
-    'https://smmarchive.store',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000'
-  ],
+  origin: ['https://www.smmarchive.store', 'https://smmarchive.store', 'http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -56,29 +52,19 @@ app.use(bodyParser.json({ limit: '15mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '15mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.use((req, res, next) => {
-  const timestamp = new Date().toISOString();
-  console.log(`[HTTP INCOMING] [${timestamp}] ${req.method} — ${req.url}`);
-  next();
-});
-
 app.get('/', (req, res) => {
-  res.send('SMM Archive Backend API is running successfully!');
+  res.send('SMM Archive Official Store Engine is active and running.');
 });
 
-// ============================================================================
-// 2. НАСТРОЙКА RESEND API И TELEGRAM БОТА (С ЗАЩИТОЙ ОТ 409 КОНФЛИКТА)
-// ============================================================================
+// Resend Email API
 const resend = new Resend('re_ATyU1DR1_2RaQZNx7KoMJuoMWPtebds');
 
+// Telegram Bot API
 const TELEGRAM_BOT_TOKEN = '8787531145:AAEGO7IRwWQrT_EJvvhF5nzImWAnpYMa0g4';
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
 bot.on('polling_error', (error) => {
-  if (error.code === 'ETELEGRAM' && error.message && error.message.includes('409 Conflict')) {
-    return;
-  }
-  console.error('[TELEGRAM POLLING ERROR]', error.code, error.message);
+  if (error.code === 'ETELEGRAM' && error.message && error.message.includes('409 Conflict')) return;
 });
 
 bot.on('message', async (msg) => {
@@ -86,7 +72,7 @@ bot.on('message', async (msg) => {
   const text = msg.text ? msg.text.trim() : '';
 
   if (text.startsWith('/start')) {
-    bot.sendMessage(chatId, '🖤 Добро пожаловать в SMM ARCHIVE!\n\nВведите ваш 6-значный код подтверждения с сайта, чтобы привязать Telegram-аккаунт.');
+    bot.sendMessage(chatId, '🖤 Добро пожаловать в SMM ARCHIVE!\n\nВведите ваш 6-значный код привязки с сайта в личной кабинете.');
     return;
   }
 
@@ -94,21 +80,19 @@ bot.on('message', async (msg) => {
     try {
       const userCheck = await db.query('SELECT * FROM users WHERE tg_code = $1', [text]);
       if (userCheck.rows.length > 0) {
-        await db.query('UPDATE users SET tg_id = $1, is_tg_verified = 1, tg_code = NULL WHERE tg_code = $2', [chatId, text]);
-        bot.sendMessage(chatId, '✅ Аккаунт успешно привязан к SMM ARCHIVE!');
+        await db.query('UPDATE users SET tg_id = $1, is_tg_verified = 1, tg_code = NULL WHERE tg_code = $2', [chatId.toString(), text]);
+        bot.sendMessage(chatId, '✅ Ваш Telegram успешно привязан к профилю SMM ARCHIVE!');
       } else {
-        bot.sendMessage(chatId, '❌ Неверный или устаревший код подтверждения.');
+        bot.sendMessage(chatId, '❌ Неверный или устаревший код привязки.');
       }
     } catch (err) {
-      console.error('[TELEGRAM BOT DB ERROR]', err);
-      bot.sendMessage(chatId, '⚠️ Произошла ошибка на сервере при привязке аккаунта.');
+      console.error('[TG BOT ERROR]', err);
+      bot.sendMessage(chatId, '⚠️ Ошибка сервера при привязке.');
     }
   }
 });
 
-// ============================================================================
-// 3. АВТОМАТИЧЕСКАЯ ИНИЦИАЛИЗАЦИЯ АДМИНИСТРАТОРОВ (ADMIN SEEDER)
-// ============================================================================
+// Автосоздание Администраторов при старте сервера
 async function seedAdmins() {
   const admins = [
     { login: 'Fedotov2209', pass: 'S22092009', email: 'alexgoost135809@gmail.com', name: 'Fedotov' },
@@ -125,32 +109,26 @@ async function seedAdmins() {
         const refCode = 'REF-' + Math.random().toString(36).substring(2, 7).toUpperCase();
         await db.query(
           `INSERT INTO users (login, password, email, phone, name, referral_code, is_verified, is_admin, balance) 
-           VALUES ($1, $2, $3, $4, $5, $6, 1, 1, 99999)`,
+           VALUES ($1, $2, $3, $4, $5, $6, 1, 1, 0)`,
           [adm.login, hashedPassword, adm.email, '+79990000000', adm.name, refCode]
         );
-        console.log(`[ADMIN SEED] Администратор ${adm.login} успешно создан.`);
       } else {
-        await db.query(
-          `UPDATE users SET password = $1, is_admin = 1, is_verified = 1 WHERE login = $2`,
-          [hashedPassword, adm.login]
-        );
-        console.log(`[ADMIN SEED] Администратор ${adm.login} синхронизирован.`);
+        await db.query(`UPDATE users SET password = $1, is_admin = 1, is_verified = 1 WHERE login = $2`, [hashedPassword, adm.login]);
       }
     } catch (e) {
-      console.error(`[ADMIN SEED ERROR] Ошибка инициализации ${adm.login}:`, e.message);
+      console.error(`[ADMIN SEED ERROR] ${adm.login}:`, e.message);
     }
   }
 }
 
-// ============================================================================
-// 4. МАРШРУТЫ АВТОРИЗАЦИИ И ПОЧТОВОЙ ВЕРИФИКАЦИИ ЧЕРЕЗ RESEND API (ДОМЕН)
-// ============================================================================
+// ==========================================
+// АВТОРИЗАЦИЯ И РЕГИСТРАЦИЯ
+// ==========================================
 
 app.post('/api/auth/register', async (req, res) => {
   const { login, password, confirmPassword, phone, email } = req.body;
-
   if (!login || !password || !phone || !email) {
-    return res.status(400).json({ success: false, message: 'Заполните все обязательные поля формы регистрации' });
+    return res.status(400).json({ success: false, message: 'Заполните все обязательные поля' });
   }
   if (password !== confirmPassword) {
     return res.status(400).json({ success: false, message: 'Пароли не совпадают' });
@@ -161,7 +139,6 @@ app.post('/api/auth/register', async (req, res) => {
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-
     const insertRes = await db.query(
       `INSERT INTO users (login, password, email, phone, name, referral_code, email_code, is_verified, balance) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0) RETURNING id`,
@@ -175,225 +152,107 @@ app.post('/api/auth/register', async (req, res) => {
         from: 'SMM ARCHIVE <support@smmarchive.store>',
         to: [email],
         subject: 'Подтверждение регистрации — SMM ARCHIVE',
-        html: `
-          <div style="background:#10081c; color:#f3f0f7; padding:35px; font-family:sans-serif; border-radius:12px; border:1px solid rgba(192,132,252,0.2);">
-            <h2 style="color:#c084fc; margin-top:0;">SMM ARCHIVE</h2>
-            <p>Здравствуйте, <strong>${login}</strong>!</p>
-            <p>Ваш проверочный 4-значный код подтверждения Email:</p>
-            <div style="background:#160a28; border:1px dashed #c084fc; padding:15px; font-size:28px; font-weight:bold; letter-spacing:8px; color:#c084fc; text-align:center; margin:20px 0; border-radius:8px;">
-              ${emailCode}
-            </div>
-          </div>
-        `
+        html: `<div style="background:#10081c; color:#f3f0f7; padding:35px; border-radius:12px;"><h2 style="color:#c084fc;">SMM ARCHIVE</h2><p>Код подтверждения:</p><div style="font-size:28px; font-weight:bold; color:#c084fc; text-align:center; padding:15px; border:1px dashed #c084fc;">${emailCode}</div></div>`
       });
-      console.log(`[RESEND SUCCESS] Письмо с кодом ${emailCode} успешно отправлено на ${email}`);
     } catch (mailErr) {
       console.error('[RESEND ERROR]', mailErr.message);
-      console.log(`\n[РЕЖИМ ОТЛАДКИ / КОД ДЛЯ ${email}]: ${emailCode}\n`);
     }
 
-    res.json({ success: true, userId, message: 'Код подтверждения успешно отправлен на ваш Email' });
+    res.json({ success: true, userId, message: 'Код подтверждения отправлен на Email' });
   } catch (err) {
-    console.error('[REGISTRATION ERROR]', err);
-    return res.status(400).json({ success: false, message: 'Указанный логин или Email уже зарегистрированы в системе' });
+    res.status(400).json({ success: false, message: 'Логин или Email уже заняты в системе' });
   }
 });
 
 app.post('/api/auth/verify-email', async (req, res) => {
   const { userId, code } = req.body;
-  if (!userId || !code) {
-    return res.status(400).json({ success: false, message: 'Не указан ID пользователя или код верификации' });
-  }
-
   try {
     const userRes = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
     const user = userRes.rows[0];
 
     if (!user || user.email_code !== code) {
-      return res.status(400).json({ success: false, message: 'Введен неверный код подтверждения' });
+      return res.status(400).json({ success: false, message: 'Неверный код подтверждения' });
     }
 
     await db.query("UPDATE users SET is_verified = 1, email_code = NULL WHERE id = $1", [userId]);
     const token = jwt.sign({ userId: user.id, login: user.login }, JWT_SECRET, { expiresIn: '7d' });
 
-    res.json({ 
-      success: true, 
-      token,
-      userId: user.id,
-      name: user.name, 
-      balance: user.balance || 0, 
-      referral_code: user.referral_code,
-      ref_count: user.ref_count || 0,
-      tg_discount_claimed: user.tg_discount_claimed || 0,
-      is_admin: user.is_admin || 0
-    });
+    res.json({ success: true, token, userId: user.id, name: user.name, balance: user.balance, referral_code: user.referral_code, is_admin: user.is_admin });
   } catch (err) {
-    console.error('[VERIFY ERROR]', err);
-    res.status(500).json({ success: false, message: 'Ошибка обновления статуса пользователя' });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
 app.post('/api/auth/login', async (req, res) => {
   const { login, password } = req.body;
-  if (!login || !password) {
-    return res.status(400).json({ success: false, message: 'Введите логин и пароль для входа в систему' });
-  }
-
   try {
     const userRes = await db.query("SELECT * FROM users WHERE login = $1 OR email = $1", [login]);
     const user = userRes.rows[0];
 
     if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(400).json({ success: false, message: 'Неверный логин, email или пароль' });
+      return res.status(400).json({ success: false, message: 'Неверный логин или пароль' });
     }
-
     if (user.is_verified === 0 && user.is_admin !== 1) {
-      return res.status(400).json({ success: false, message: 'Email не подтвержден. Введите проверочный код из письма.' });
+      return res.status(400).json({ success: false, message: 'Email не подтвержден кодом' });
     }
 
-    const token = jwt.sign({ userId: user.id, login: user.login, role: user.is_admin === 1 ? 'admin' : 'user' }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: user.id, login: user.login }, JWT_SECRET, { expiresIn: '7d' });
 
-    res.json({ 
-      success: true, 
-      token,
-      userId: user.id, 
-      name: user.name, 
-      balance: user.balance || 0, 
-      referral_code: user.referral_code,
-      ref_count: user.ref_count || 0,
-      is_admin: user.is_admin,
-      tg_discount_claimed: user.tg_discount_claimed || 0
-    });
+    res.json({ success: true, token, userId: user.id, name: user.name, balance: user.balance, referral_code: user.referral_code, is_admin: user.is_admin, is_tg_verified: user.is_tg_verified });
   } catch (err) {
-    console.error('[LOGIN ERROR]', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-app.post('/api/auth/forgot-password', async (req, res) => {
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ success: false, message: 'Введите Email адрес' });
-  }
-
+app.get('/api/auth/profile', async (req, res) => {
   try {
-    const userRes = await db.query("SELECT * FROM users WHERE email = $1", [email]);
-    const user = userRes.rows[0];
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ success: false, message: 'Нет токена' });
+    const decoded = jwt.verify(authHeader.replace('Bearer ', ''), JWT_SECRET);
 
-    if (user) {
-      const resetCode = Math.floor(1000 + Math.random() * 9000).toString();
-      await db.query("UPDATE users SET email_code = $1 WHERE id = $2", [resetCode, user.id]);
+    const userRes = await db.query("SELECT id, login, email, phone, name, balance, referral_code, is_admin, is_tg_verified FROM users WHERE id = $1", [decoded.userId]);
+    if (userRes.rows.length === 0) return res.status(404).json({ success: false, message: 'Пользователь не найден' });
 
-      try {
-        await resend.emails.send({
-          from: 'SMM ARCHIVE <support@smmarchive.store>',
-          to: [email],
-          subject: 'Восстановление пароля — SMM ARCHIVE',
-          html: `
-            <div style="background:#10081c; color:#f3f0f7; padding:35px; font-family:sans-serif; border-radius:12px; border:1px solid rgba(192,132,252,0.2);">
-              <h2 style="color:#c084fc; margin-top:0;">SMM ARCHIVE</h2>
-              <p>Ваш проверочный 4-значный код для сброса пароля:</p>
-              <div style="background:#160a28; border:1px dashed #c084fc; padding:15px; font-size:28px; font-weight:bold; letter-spacing:8px; color:#c084fc; text-align:center; margin:20px 0; border-radius:8px;">
-                ${resetCode}
-              </div>
-            </div>
-          `
-        });
-      } catch (mailErr) {
-        console.error('[FORGOT MAIL ERROR]', mailErr.message);
-        console.log(`[ДЕБАГ СБРОСА ПАРОЛЯ ДЛЯ ${email}]: ${resetCode}`);
-      }
-    }
-
-    res.json({ success: true, message: 'Если такой Email зарегистрирован, на него отправлен код сброса.' });
+    res.json({ success: true, user: userRes.rows[0] });
   } catch (err) {
-    console.error('[FORGOT PASSWORD ERROR]', err);
-    res.status(500).json({ success: false, message: 'Ошибка отправки письма с кодом' });
+    res.status(401).json({ success: false, message: 'Неверный токен' });
   }
 });
 
-app.post('/api/auth/reset-password', async (req, res) => {
-  const { email, code, newPassword, confirmPassword } = req.body;
-  if (!email || !code || !newPassword || !confirmPassword) {
-    return res.status(400).json({ success: false, message: 'Заполните все поля' });
-  }
-  if (newPassword !== confirmPassword) {
-    return res.status(400).json({ success: false, message: 'Новые пароли не совпадают' });
-  }
-
-  try {
-    const userRes = await db.query("SELECT * FROM users WHERE email = $1", [email]);
-    const user = userRes.rows[0];
-
-    if (!user || user.email_code !== code) {
-      return res.status(400).json({ success: false, message: 'Введен неверный код или истек срок его действия' });
-    }
-
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await db.query("UPDATE users SET password = $1, email_code = NULL WHERE id = $2", [hashedPassword, user.id]);
-
-    res.json({ success: true, message: 'Пароль успешно изменен. Теперь вы можете войти.' });
-  } catch (err) {
-    console.error('[RESET PASSWORD ERROR]', err);
-    res.status(500).json({ success: false, message: 'Ошибка сброса пароля на сервере' });
-  }
-});
-
-// ============================================================================
-// 5. TELEGRAM INTEGRATION API (С ЗАЩИТОЙ ОТ ОШИБКИ 22003 / 32-BIT INT)
-// ============================================================================
 app.post('/api/auth/generate-tg-code', async (req, res) => {
   let { userId } = req.body;
-  
-  const parsedUserId = parseInt(userId, 10);
-
-  // Защита от переполнения 32-битного integer в PostgreSQL (ошибка 22003 / pg_strtoint32_safe)
-  if (!userId || isNaN(parsedUserId) || parsedUserId > 2147483647 || parsedUserId < 1) {
-    return res.status(400).json({ 
-      success: false, 
-      message: 'Некорректный ID пользователя. Пожалуйста, выполните повторный вход в аккаунт.' 
-    });
-  }
+  const parsedId = parseInt(userId, 10);
+  if (isNaN(parsedId)) return res.status(400).json({ success: false, message: 'Некорректный ID' });
 
   const tgCode = Math.floor(100000 + Math.random() * 900000).toString();
-
   try {
-    await db.query("UPDATE users SET tg_code = $1 WHERE id = $2", [tgCode, parsedUserId]);
-    res.json({ 
-      success: true, 
-      code: tgCode, 
-      botUsername: 'smmarchive_bot',
-      message: 'Код сгенерирован. Отправьте его нашему Telegram-боту.' 
-    });
+    await db.query("UPDATE users SET tg_code = $1 WHERE id = $2", [tgCode, parsedId]);
+    res.json({ success: true, code: tgCode });
   } catch (err) {
-    console.error('[GENERATE TG CODE ERROR]', err);
     res.status(500).json({ success: false, message: 'Ошибка генерации Telegram кода' });
   }
 });
 
-// ============================================================================
-// 6. КАТАЛОГ И ТОВАРЫ (PRODUCTS API)
-// ============================================================================
+// ==========================================
+// КАТАЛОГ, НОВОСТИ И ОТЗЫВЫ
+// ==========================================
+
 app.get('/api/products', async (req, res) => {
   try {
-    const result = await db.query("SELECT * FROM products ORDER BY created_at DESC");
-    const formatted = result.rows.map(p => ({ 
-      ...p, 
-      sizes: typeof p.sizes === 'string' ? JSON.parse(p.sizes || '[]') : (p.sizes || []), 
-      photos: typeof p.photos === 'string' ? JSON.parse(p.photos || '[]') : (p.photos || []) 
-    }));
-    res.json(formatted);
+    const result = await db.query("SELECT * FROM products ORDER BY id DESC");
+    res.json(result.rows.map(p => ({
+      ...p,
+      sizes: typeof p.sizes === 'string' ? JSON.parse(p.sizes || '[]') : (p.sizes || []),
+      photos: typeof p.photos === 'string' ? JSON.parse(p.photos || '[]') : (p.photos || [])
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ============================================================================
-// 7. НОВОСТИ И ОТЗЫВЫ (NEWS & REVIEWS API)
-// ============================================================================
 app.get('/api/news', async (req, res) => {
   try {
-    const result = await db.query("SELECT * FROM news ORDER BY created_at DESC");
+    const result = await db.query("SELECT * FROM news ORDER BY id DESC");
     res.json(result.rows || []);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -402,66 +261,122 @@ app.get('/api/news', async (req, res) => {
 
 app.get('/api/reviews', async (req, res) => {
   try {
-    const result = await db.query(`SELECT reviews.*, users.name FROM reviews LEFT JOIN users ON reviews.user_id = users.id WHERE reviews.status = 'approved' ORDER BY reviews.created_at DESC`);
+    const result = await db.query(`SELECT reviews.*, users.name FROM reviews LEFT JOIN users ON reviews.user_id = users.id ORDER BY reviews.id DESC`);
     res.json(result.rows || []);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ============================================================================
-// 8. ЗАКАЗЫ И ДОСТАВКА (ORDERS API)
-// ============================================================================
+// ==========================================
+// ЗАКАЗЫ И ИНТЕГРАЦИЯ С ЮMONEY
+// ==========================================
+
 app.post('/api/orders', async (req, res) => {
-  const { userId, number, total, delivery, address, items } = req.body;
+  const { userId, number, total, delivery, address, items, paymentMethod } = req.body;
   const orderId = 'ord-' + Date.now();
   const trackingNumber = 'RU-' + Math.floor(Math.random() * 90000000 + 10000000);
 
   try {
-    await db.query(`INSERT INTO orders (id, userId, number, total, status, delivery, address, items, track) VALUES ($1, $2, $3, $4, 'Оплачен', $5, $6, $7, $8)`,
-      [orderId, userId, number, total, delivery, address, JSON.stringify(items), trackingNumber]);
-    
+    if (paymentMethod === 'yoomoney') {
+      // Создание реального платежа через API ЮMoney
+      // (В продакшене здесь вызывается YooKassa/YooMoney API для получения URL оплаты)
+      const paymentUrl = `https://yoomoney.ru/quickpay/confirm.xml?receiver=41001XXXXXXXXX&sum=${total}&quickpay-form=shop&targets=Заказ №${number}&label=${orderId}`;
+      
+      await db.query(
+        `INSERT INTO orders (id, user_id, customer_name, phone, total, status, delivery, address, items, track) VALUES ($1, $2, $3, $4, $5, 'Ожидает оплаты', $6, $7, $8, $9)`,
+        [orderId, userId || null, number, '', total, delivery, address, JSON.stringify(items), trackingNumber]
+      );
+
+      return res.json({ success: true, orderId, paymentUrl, message: 'Сгенерирована ссылка на оплату ЮMoney' });
+    }
+
+    // Оплата с баланса кошелька или при получении
+    await db.query(
+      `INSERT INTO orders (id, user_id, customer_name, phone, total, status, delivery, address, items, track) VALUES ($1, $2, $3, $4, $5, 'Оплачен', $6, $7, $8, $9)`,
+      [orderId, userId || null, number, '', total, delivery, address, JSON.stringify(items), trackingNumber]
+    );
+
     if (userId) {
       await db.query("UPDATE users SET balance = GREATEST(0, balance - $1) WHERE id = $2", [total, userId]);
     }
 
-    res.json({ success: true, orderId, number, track: trackingNumber, message: 'Заказ успешно оформлен!' });
+    res.json({ success: true, orderId, track: trackingNumber, message: 'Заказ успешно оформлен!' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ============================================================================
-// 9. СЛУЖБА ПОДДЕРЖКИ (SUPPORT API)
-// ============================================================================
-app.get('/api/support/messages', async (req, res) => {
+// ==========================================
+// АДМИН-ПАНЕЛЬ (Управление магазином)
+// ==========================================
+
+// Статистика магазина для администратора
+app.get('/api/admin/stats', async (req, res) => {
   try {
-    const result = await db.query("SELECT * FROM support_messages ORDER BY id ASC");
-    if (result.rows.length === 0) {
-      return res.json([{ sender: 'manager', text: 'Здравствуйте! Добро пожаловать в SMM ARCHIVE.' }]);
-    }
-    res.json(result.rows);
+    const usersCount = await db.query("SELECT COUNT(*) FROM users");
+    const ordersCount = await db.query("SELECT COUNT(*) FROM orders");
+    const revenueSum = await db.query("SELECT SUM(total) FROM orders WHERE status = 'Оплачен'");
+    
+    res.json({
+      success: true,
+      users: parseInt(usersCount.rows[0].count, 10),
+      orders: parseInt(ordersCount.rows[0].count, 10),
+      revenue: parseFloat(revenueSum.rows[0].sum || 0)
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Публикация новости администратором
+app.post('/api/admin/news', async (req, res) => {
+  const { title, text, photo } = req.body;
+  try {
+    await db.query("INSERT INTO news (title, text, photo) VALUES ($1, $2, $3)", [title, text, photo || '']);
+    res.json({ success: true, message: 'Новость успешно опубликована' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Добавление товара в каталог
+app.post('/api/admin/products', async (req, res) => {
+  const { title, category, price, description, photos, sizes, badge } = req.body;
+  try {
+    await db.query(
+      `INSERT INTO products (title, category, price, description, photos, sizes, badge) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [title, category, price, description, JSON.stringify(photos || []), JSON.stringify(sizes || ['S', 'M', 'L', 'XL']), badge || '']
+    );
+    res.json({ success: true, message: 'Товар успешно добавлен в каталог' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Просмотр всех заказов администратором
+app.get('/api/admin/orders', async (req, res) => {
+  try {
+    const result = await db.query("SELECT * FROM orders ORDER BY created_at DESC");
+    res.json(result.rows || []);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/support/messages', async (req, res) => {
-  const { userId, text } = req.body;
-  if (!text) return res.status(400).json({ success: false, message: 'Пустое сообщение' });
-
+// Изменение статуса заказа и трек-номера админом
+app.put('/api/admin/orders/:id', async (req, res) => {
+  const { id } = req.params;
+  const { status, track } = req.body;
   try {
-    await db.query("INSERT INTO support_messages (user_id, sender, text) VALUES ($1, 'you', $2)", [userId || 'guest', text]);
-    res.json({ success: true, message: 'Сообщение отправлено' });
+    await db.query("UPDATE orders SET status = COALESCE($1, status), track = COALESCE($2, track) WHERE id = $3", [status, track, id]);
+    res.json({ success: true, message: 'Заказ успешно обновлен' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// ============================================================================
-// 10. ЗАПУСК СЕРВЕРА
-// ============================================================================
 app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`SMM ARCHIVE BACKEND RUNNING ON PORT ${PORT}`);
+  console.log(`SMM ARCHIVE PROD SERVER RUNNING ON PORT ${PORT}`);
   await seedAdmins();
 });
