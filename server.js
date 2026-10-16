@@ -75,7 +75,6 @@ const TELEGRAM_BOT_TOKEN = '8787531145:AAEGO7IRwWQrT_EJvvhF5nzImWAnpYMa0g4';
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
 bot.on('polling_error', (error) => {
-  // Безопасный перехват конфликта множественных инстансов бота
   if (error.code === 'ETELEGRAM' && error.message && error.message.includes('409 Conflict')) {
     return;
   }
@@ -171,7 +170,6 @@ app.post('/api/auth/register', async (req, res) => {
 
     const userId = insertRes.rows[0].id;
 
-    // Отправка письма через Resend с официального корпоративного домена
     try {
       await resend.emails.send({
         from: 'SMM ARCHIVE <support@smmarchive.store>',
@@ -342,18 +340,25 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // ============================================================================
-// 5. TELEGRAM INTEGRATION API
+// 5. TELEGRAM INTEGRATION API (С ЗАЩИТОЙ ОТ ОШИБКИ 22003 / 32-BIT INT)
 // ============================================================================
 app.post('/api/auth/generate-tg-code', async (req, res) => {
-  const { userId } = req.body;
-  if (!userId) {
-    return res.status(400).json({ success: false, message: 'Не указан ID пользователя' });
+  let { userId } = req.body;
+  
+  const parsedUserId = parseInt(userId, 10);
+
+  // Защита от переполнения 32-битного integer в PostgreSQL (ошибка 22003 / pg_strtoint32_safe)
+  if (!userId || isNaN(parsedUserId) || parsedUserId > 2147483647 || parsedUserId < 1) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Некорректный ID пользователя. Пожалуйста, выполните повторный вход в аккаунт.' 
+    });
   }
 
   const tgCode = Math.floor(100000 + Math.random() * 900000).toString();
 
   try {
-    await db.query("UPDATE users SET tg_code = $1 WHERE id = $2", [tgCode, userId]);
+    await db.query("UPDATE users SET tg_code = $1 WHERE id = $2", [tgCode, parsedUserId]);
     res.json({ 
       success: true, 
       code: tgCode, 
